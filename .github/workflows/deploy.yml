@@ -12,10 +12,10 @@ jobs:
       id-token: write  # needed for OIDC / WIF
 
     env:
-      PROJECT_ID: craigslist-scraper-cars
+      PROJECT_ID: craigslist-scraper-cars-v2
       REGION: us-central1
-      BUCKET_NAME: craigslist-scraper-cars-data
-      FUNCTION_NAME: scraper-cf
+      BUCKET_NAME: craigslist-data-cars-v2
+      FUNCTION_NAME: craigslist-scraper # edit in all yml!
       RUNTIME_SA: cf-runtime@craigslist-scraper-cars.iam.gserviceaccount.com
       WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
       DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
@@ -35,6 +35,7 @@ jobs:
         run: gcloud config set project $PROJECT_ID
 
       - name: Deploy CF Gen2 (from cloud_function/)
+        working-directory: cloud_function/scraper-cars
         run: |
           gcloud functions deploy "$FUNCTION_NAME" \
             --project="$PROJECT_ID" \
