@@ -12,16 +12,26 @@ jobs:
       id-token: write   # required for OIDC / WIF
 
     env:
-      PROJECT_ID: craigslist-scraper-cars-v2
-      REGION: us-central1
-      FUNCTION_NAME: craigslist-scraper
-      RUNTIME_SA: cf-runtime@craigslist-scraper-cars-v2.iam.gserviceaccount.com
-      BUCKET_NAME: craigslist-data-cars-v2
+      PROJECT_ID: ${{ vars.PROJECT_ID }}
+      REGION: ${{ vars.REGION }}
+      FUNCTION_NAME: ${{ vars.FUNCTION_NAME || 'craigslist-scraper' }}
+      RUNTIME_SA: ${{ vars.RUNTIME_SA }}
+      BUCKET_NAME: ${{ vars.BUCKET_NAME }}
       WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
       DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Echo inputs (debug)
+        run: |
+          echo "PROJECT_ID=$PROJECT_ID"
+          echo "REGION=$REGION"
+          echo "FUNCTION_NAME=$FUNCTION_NAME"
+          echo "RUNTIME_SA=$RUNTIME_SA"
+          echo "BUCKET_NAME=$BUCKET_NAME"
+          echo "WIF_PROVIDER=$WORKLOAD_IDENTITY_PROVIDER"
+          echo "DEPLOYER_SA=$DEPLOYER_SA"
 
       - name: Authenticate via WIF
         uses: google-github-actions/auth@v2
