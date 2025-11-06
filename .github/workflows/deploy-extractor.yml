@@ -13,12 +13,13 @@ permissions:
   id-token: write
 
 env:
-  PROJECT_ID: ${{ vars.GCP_PROJECT }}
-  REGION: ${{ vars.GCP_REGION }}
+  PROJECT_ID: ${{ vars.PROJECT_ID }}                  # was GCP_PROJECT
+  REGION: ${{ vars.REGION }}                          # was GCP_REGION
   FUNCTION_NAME: ${{ vars.EXTRACTOR_FUNCTION_NAME || 'extractor-per-listing' }}
   FUNCTION_DIR: cloud_function/extractor-per-listing
   RUNTIME: python312
-  BUCKET_NAME: ${{ vars.GCS_BUCKET }}
+  BUCKET_NAME: ${{ vars.BUCKET_NAME }}                # was GCS_BUCKET
+  RUNTIME_SA: ${{ vars.RUNTIME_SA }}
 
 jobs:
   deploy:
@@ -43,6 +44,8 @@ jobs:
           echo "REGION=${REGION}"
           echo "FUNCTION_NAME=${FUNCTION_NAME}"
           echo "FUNCTION_DIR=${FUNCTION_DIR}"
+          echo "BUCKET_NAME=${BUCKET_NAME}"
+          echo "RUNTIME_SA=${RUNTIME_SA}"
 
       - name: Verify source
         run: |
@@ -54,8 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           SA_FLAG=""
-          if [[ -n "${{ vars.RUNTIME_SA }}" ]]; then
-            SA_FLAG="--service-account='${{ vars.RUNTIME_SA }}'"
+          if [[ -n "${RUNTIME_SA:-}" ]]; then
+            SA_FLAG="--service-account='${RUNTIME_SA}'"
           fi
           gcloud functions deploy "${FUNCTION_NAME}" \
             --gen2 \
