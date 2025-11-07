@@ -1,4 +1,7 @@
-name: Deploy extractor-per-listing (CF Gen2 + Cloud Scheduler)
+name: Deploy Extractor (CF Gen2 + Cloud Scheduler)
+# optional: a per-run title shown in the run list
+run-name: "Extractor deploy by ${{ github.actor }} • ${{ github.ref_name }}"
+
 
 on:
   push:
