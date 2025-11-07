@@ -28,7 +28,7 @@ env:
   DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}             # GitHub deploy SA (email)
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
   SCHEDULE_BODY: ${{ vars.MATERIALIZE_BODY || '{}' }}
-  CRON_EXPR: "0,10 * * * *"                         # :00 and :10 each hour (ET)
+  CRON_EXPR: "15 * * * *"                         # :15 each hour
 
 jobs:
   deploy:
@@ -140,7 +140,7 @@ jobs:
             exit 1
           fi
 
-      - name: Create/Update Cloud Scheduler job (:00 and :10 ET, OIDC)
+      - name: Create/Update Cloud Scheduler job (:15 ET, OIDC)
         shell: bash
         run: |
           set -euo pipefail
