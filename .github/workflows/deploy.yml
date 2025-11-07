@@ -1,46 +1,38 @@
-name: Deploy Scraper (CF Gen2)
+name: Deploy Scraper (CF Gen2 + Cloud Scheduler)
 
 on:
   push:
     branches: [ "main" ]
-  schedule:
-    - cron: "0 * * * *"   # top of every hour (UTC)
-  workflow_dispatch:
+    paths:
+      - 'cloud_function/scraper_cars/**'
+      - '.github/workflows/deploy-scraper.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ vars.PROJECT_ID }}
+  REGION: ${{ vars.REGION }}
+  FUNCTION_NAME: ${{ vars.SCRAPER_FUNCTION_NAME || vars.FUNCTION_NAME || 'craigslist-scraper' }}
+  FUNCTION_DIR: cloud_function/scraper_cars
+  ENTRY_POINT: entrypoint
+  RUNTIME: python312
+  BUCKET_NAME: ${{ vars.BUCKET_NAME }}
+  RUNTIME_SA: ${{ vars.RUNTIME_SA }}
+  DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
+  WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
+  SCHEDULE_BODY: ${{ vars.SCHEDULE_BODY || '{"pages":1,"max":3}' }}
+  CRON_EXPR: "0 * * * *"              # :00 every hour (ET below)
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write   # required for OIDC / WIF
-
-    env:
-      PROJECT_ID: ${{ vars.PROJECT_ID }}
-      REGION: ${{ vars.REGION }}
-      FUNCTION_NAME: ${{ vars.SCRAPER_FUNCTION_NAME || vars.FUNCTION_NAME || 'craigslist-scraper' }}
-      RUNTIME_SA: ${{ vars.RUNTIME_SA }}
-      BUCKET_NAME: ${{ vars.BUCKET_NAME }}
-      WORKLOAD_IDENTITY_PROVIDER: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
-      DEPLOYER_SA: ${{ vars.DEPLOYER_SA }}
-      # Payload used when the hourly schedule INVOKES the function
-      SCHEDULE_BODY: ${{ vars.SCHEDULE_BODY || '{"pages":1,"max":3}' }}
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Echo inputs (debug)
-        run: |
-          echo "EVENT=${{ github.event_name }}"
-          echo "PROJECT_ID=$PROJECT_ID"
-          echo "REGION=$REGION"
-          echo "FUNCTION_NAME=$FUNCTION_NAME"
-          echo "RUNTIME_SA=$RUNTIME_SA"
-          echo "BUCKET_NAME=$BUCKET_NAME"
-          echo "WIF_PROVIDER=$WORKLOAD_IDENTITY_PROVIDER"
-          echo "DEPLOYER_SA=$DEPLOYER_SA"
-          echo "SCHEDULE_BODY=$SCHEDULE_BODY"
-
-      - name: Authenticate via WIF
+      - name: Auth (WIF)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
@@ -50,60 +42,104 @@ jobs:
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
 
-      - name: Set gcloud project
-        run: gcloud config set project "$PROJECT_ID"
+      - name: Echo config
+        run: |
+          echo "PROJECT_ID=${PROJECT_ID}"
+          echo "REGION=${REGION}"
+          echo "FUNCTION_NAME=${FUNCTION_NAME}"
+          echo "FUNCTION_DIR=${FUNCTION_DIR}"
+          echo "ENTRY_POINT=${ENTRY_POINT}"
+          echo "RUNTIME_SA=${RUNTIME_SA}"
+          echo "DEPLOYER_SA=${DEPLOYER_SA}"
 
-      # ------------------ DEPLOY on push / manual ------------------
-      - name: Deploy CF Gen2 (from cloud_function/scraper_cars)
-        if: github.event_name != 'schedule'
+      - name: Deploy Cloud Function (Gen2, HTTP, authenticated)
         run: |
           set -euo pipefail
           SA_ARGS=()
           if [[ -n "${RUNTIME_SA:-}" ]]; then
-            echo "Using runtime SA: ${RUNTIME_SA}"
             gcloud iam service-accounts describe "${RUNTIME_SA}" >/dev/null 2>&1
             SA_ARGS=(--service-account="${RUNTIME_SA}")
           fi
-          gcloud functions deploy "$FUNCTION_NAME" \
-            --project="$PROJECT_ID" \
+          gcloud functions deploy "${FUNCTION_NAME}" \
             --gen2 \
-            --region="$REGION" \
-            --runtime=python312 \
-            --entry-point=entrypoint \
+            --region="${REGION}" \
+            --runtime="${RUNTIME}" \
+            --source="${FUNCTION_DIR}" \
+            --entry-point="${ENTRY_POINT}" \
             --trigger-http \
             --no-allow-unauthenticated \
             "${SA_ARGS[@]}" \
-            --set-env-vars "PROJECT_ID=$PROJECT_ID,BUCKET_NAME=$BUCKET_NAME" \
+            --set-env-vars="PROJECT_ID=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME}" \
             --memory=512Mi \
-            --timeout=540s \
-            --source "cloud_function/scraper_cars"
+            --timeout=540s
 
-      - name: Ensure invoker IAM for GitHub SA
-        if: github.event_name != 'schedule'
+      - name: Grant invoker to deployer SA
         run: |
-          gcloud functions add-invoker-policy-binding "$FUNCTION_NAME" \
-            --gen2 --region "$REGION" \
-            --member "serviceAccount:${DEPLOYER_SA}"
+          gcloud functions add-invoker-policy-binding "${FUNCTION_NAME}" \
+            --gen2 --region "${REGION}" \
+            --member="serviceAccount:${DEPLOYER_SA}"
 
-      - name: Show Function URL
-        if: github.event_name != 'schedule'
-        run: gcloud functions describe "$FUNCTION_NAME" --gen2 --region "$REGION" --format="value(serviceConfig.uri)"
+      - name: Get Function URL
+        id: cfurl
+        run: |
+          URL=$(gcloud functions describe "${FUNCTION_NAME}" --gen2 --region "${REGION}" --format='value(serviceConfig.uri)')
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "FUNCTION_URL=${URL}"
 
-      # ------------------ INVOKE hourly on schedule ------------------
-      - name: Invoke Function (hourly schedule)
-        if: github.event_name == 'schedule'
+      - name: Ensure Scheduler API enabled (fail clearly if not)
+        id: apicheck
+        shell: bash
         run: |
           set -euo pipefail
-          URL="$(gcloud functions describe "$FUNCTION_NAME" --gen2 --region "$REGION" --format='value(serviceConfig.uri)')"
-          if [[ -z "${URL}" ]]; then
-            echo "Function URL not found; listing available functions in region ${REGION}:"
-            gcloud functions list --gen2 --region "$REGION" --format='table(name,state,serviceConfig.uri)'
-            exit 1
+          if gcloud services list --enabled --filter="cloudscheduler.googleapis.com" --format="value(config.name)" | grep -q cloudscheduler.googleapis.com; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            if gcloud services enable cloudscheduler.googleapis.com; then
+              echo "enabled=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Cloud Scheduler API enable failed. Grant roles/serviceusage.serviceUsageAdmin to ${DEPLOYER_SA} or enable manually."
+              exit 1
+            fi
           fi
-          echo "Invoking $URL with payload: $SCHEDULE_BODY"
-          TOKEN="$(gcloud auth print-identity-token --audiences="$URL")"
-          curl -i -sS -X POST "$URL" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$SCHEDULE_BODY"
+
+      - name: Ensure Scheduler can mint OIDC as deployer SA (tokenCreator)
+        run: |
+          set -euo pipefail
+          PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+          SCHED_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+          echo "Scheduler agent: ${SCHED_AGENT}"
+          gcloud iam service-accounts add-iam-policy-binding "${DEPLOYER_SA}" \
+            --member="serviceAccount:${SCHED_AGENT}" \
+            --role="roles/iam.serviceAccountTokenCreator"
+
+      - name: Create/Update Cloud Scheduler job (:00 ET)
+        shell: bash
+        run: |
+          set -euo pipefail
+          JOB_NAME="${FUNCTION_NAME}-hourly"
+          URL="${{ steps.cfurl.outputs.url }}"
+          [[ -z "${URL}" ]] && { echo "Function URL empty"; exit 1; }
+          if gcloud scheduler jobs describe "$JOB_NAME" --location="${REGION}" >/dev/null 2>&1; then
+            gcloud scheduler jobs update http "$JOB_NAME" \
+              --location="${REGION}" \
+              --schedule="${CRON_EXPR}" \
+              --time-zone="America/New_York" \
+              --uri="${URL}" \
+              --http-method=POST \
+              --message-body='${{ env.SCHEDULE_BODY }}' \
+              --oidc-service-account-email="${DEPLOYER_SA}" \
+              --oidc-token-audience="${URL}"
+          else
+            gcloud scheduler jobs create http "$JOB_NAME" \
+              --location="${REGION}" \
+              --schedule="${CRON_EXPR}" \
+              --time-zone="America/New_York" \
+              --uri="${URL}" \
+              --http-method=POST \
+              --message-body='${{ env.SCHEDULE_BODY }}' \
+              --oidc-service-account-email="${DEPLOYER_SA}" \
+              --oidc-token-audience="${URL}"
+          fi
