@@ -6,7 +6,7 @@ on:
     branches: [ "main" ]
     paths:
       - 'cloud_function/scraper_cars/**'
-      - '.github/workflows/deploy-scraper.yml'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch: {}
 
 permissions:
