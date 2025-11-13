@@ -16,7 +16,7 @@ permissions:
 env:
   PROJECT_ID: ${{ vars.PROJECT_ID }}
   REGION: ${{ vars.REGION }}
-  FUNCTION_NAME: ${{ vars.SCRAPER_FUNCTION_NAME || vars.FUNCTION_NAME || 'craigslist-scraper' }}
+  FUNCTION_NAME: craigslist-scraper
   FUNCTION_DIR: cloud_function/scraper_cars
   ENTRY_POINT: entrypoint
   RUNTIME: python312
