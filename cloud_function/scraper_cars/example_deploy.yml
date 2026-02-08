@@ -1,0 +1,71 @@
+# Example deployment configuration for multi-site Craigslist scraper
+# This file shows how to configure environment variables for scraping multiple areas
+
+# Google Cloud Function deployment example
+# Deploy with: gcloud functions deploy scraper_cars --env-vars-file=deploy.yml
+
+env_variables:
+  # Google Cloud Storage bucket name and project ID
+  BUCKET_NAME: "craigslist-scraper-4849"
+
+  # Multi-site configuration: Comma-separated list of Craigslist cities
+  # Examples:
+  #   - Short names: "newhaven,hartford,boston"
+  #   - Full URLs: "https://newhaven.craigslist.org,https://boston.craigslist.org"
+  SITES_TO_SCRAPE: "newhaven,hartford,boston,providence,newyork"
+
+  # Search configuration
+  SEARCH_PATH: "/search/cta"  # cars+trucks by default
+  # Other search options:
+  #   /search/cto - cars+trucks by owner
+  #   /search/ctd - cars+trucks by dealer
+
+  # Scraping limits (per site)
+  MAX_PAGES: "2"           # Number of search pages to scan per site
+  MAX_ITEMS_PER_RUN: "50"  # Maximum listings to scrape per site
+
+  # Rate limiting
+  DELAY_SECS: "1.0"  # Delay between requests in seconds (be polite!)
+
+  # User agent (customize as needed)
+  USER_AGENT: "Educational-Research-Scraper/1.0"
+
+# ============================================================================
+# Regional Examples
+# ============================================================================
+
+# Connecticut only:
+# SITES_TO_SCRAPE: "newhaven,hartford,newlondon"
+
+# New England:
+# SITES_TO_SCRAPE: "newhaven,hartford,boston,providence,worcester,vermont"
+
+# Northeast corridor:
+# SITES_TO_SCRAPE: "boston,newyork,philadelphia,baltimore,dc"
+
+# Tri-state area:
+# SITES_TO_SCRAPE: "newyork,longisland,newjersey,fairfield"
+
+# Major US cities:
+# SITES_TO_SCRAPE: "newyork,losangeles,chicago,houston,phoenix,philadelphia"
+
+# ============================================================================
+# Notes
+# ============================================================================
+
+# 1. Find your city's Craigslist subdomain by visiting craigslist.org
+#    and clicking on your region. The URL format is: https://CITY.craigslist.org
+
+# 2. The scraper will create a separate folder for each site in the output:
+#    scrapes/TIMESTAMP/newhaven/*.txt
+#    scrapes/TIMESTAMP/hartford/*.txt
+#    etc.
+
+# 3. MAX_ITEMS_PER_RUN applies PER SITE, so if you scrape 3 sites with
+#    MAX_ITEMS_PER_RUN=50, you could get up to 150 total listings
+
+# 4. Be respectful of Craigslist's servers - don't set DELAY_SECS too low
+#    or MAX_ITEMS_PER_RUN too high
+
+# 5. You can override these settings at runtime using query parameters:
+#    ?sites=boston,newyork&pages=1&max=25
